@@ -5,3 +5,5 @@ font = "sans serif"
 
 [server]
 headless = true
+# serves ./static (the CesiumJS map page) at app/static/
+enableStaticServing = true

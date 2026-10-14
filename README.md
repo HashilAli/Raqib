@@ -17,7 +17,7 @@ short_description: Digital twin that predicts terminal incidents before they hap
 
 ## بالعربية باختصار
 «رقيب» توأم رقمي لمحطة تخزين وتوزيع منتجات نفطية. يقرأ المستشعرات (هنا من محاكي)، ويقارن كل قراءة بما **يجب** أن تكون عليه حسب الفيزياء، ويتنبأ بستة أنواع من الحوادث: فيضان الخزان، تسرب الخط، فشل المضخة، انقطاع الكهرباء، سحابة الأبخرة، والتلاعب السيبراني. لكل تنبيه يجرب 2–4 حلول على التوأم ويرتبها، ثم ينشئ مسودة أمر عمل صيانة. النظام **مستشار لا متحكم**: لا يكتب أي شيء في أنظمة التحكم أو السلامة.
-الواجهة بالعربية والإنجليزية (11 شاشة)، وكل المكونات مفتوحة المصدر ويمكن نشرها مجاناً.
+الواجهة بالعربية والإنجليزية (11 شاشة) مع خريطة ثلاثية الأبعاد للموقع بـ CesiumJS، وكل المكونات مفتوحة المصدر ويمكن نشرها مجاناً.
 
 ## What you can show in two minutes
 1. Open **Control room** with the scenario *Tank overfill: stuck level gauge*. The level gauge on TK-101 froze; the operator sees a normal-looking level, but the twin's mass balance says the tank is still filling. RAQIB raises "Untrusted instrument" within about 30 minutes of the gauge sticking, about 28 hours before the simulated overflow.
@@ -30,11 +30,11 @@ Deep links work for sharing a specific screen, for example `?lang=en&scenario=pu
 ## Screens
 | Screen | What it shows | Team role |
 |---|---|---|
-| 🏭 Control room | Site map coloured by live risk `R = P × C × (1 − B)`, top 5 predictions, alerts with reasons, operator verdict buttons | UI developer |
+| 🏭 Control room | 3D CesiumJS site map (tank fill = twin-estimated level) coloured by live risk `R = P × C × (1 − B)`, top 5 predictions, alerts with reasons, operator verdict buttons | UI developer |
 | 🔁 Digital twin | Shadow mode: measured vs expected, residuals, 24 h look-ahead to the LSHH, ±2% accuracy check | Process / simulation |
 | ⚙️ Asset card P-201A | Vibration trend, exponential RUL with P10–P90, deviation drivers, Weibull from CMMS history | Reliability, ML |
 | 🧪 What-if & solutions | 2–4 options per alert, each simulated forward on the twin and ranked; CMMS work-order draft | Process, reliability |
-| 🚨 Emergency centre | Gaussian plume from the detector reading, flammable zone, upwind evacuation, response tasks | Process safety |
+| 🚨 Emergency centre | Gaussian plume from the detector reading draped on the 3D map, flammable zone, upwind evacuation, response tasks | Process safety |
 | 📋 FMEA & reliability | Editable ISO 14224 FMEA, RPN before/after RAQIB | Reliability |
 | 🧠 Models & MLOps | Model card, acceptance tests on unseen runs, precision/recall, PSI drift, anomaly score | Data science / ML |
 | 🔐 OT integration & security | Purdue diagram, read-only connectors, data quality, tamper verdict, blocked-write demo, IEC 62443 | OT data, OT cyber |
@@ -77,6 +77,7 @@ plant.py (simulated site) ──measured tags──▶ twin.py (shadow model) �
 * **Digital twin** (`raqib/twin.py`): calibrated on the first 24 h, it computes expected values and residuals, reconciles tank levels when sensor and physics agree, and keeps a physics estimate when they do not. The look-ahead projects hours to the LSHH from the twin's level, not the gauge.
 * **Prediction engine** (`raqib/models.py`): one gradient-boosted classifier per failure mode, restricted to that mode's causal signals with monotonic constraints, so it cannot learn coincidences of weather or schedule. Labels start only once a physical precursor exists. Isolation Forest scores unknown anomalies. RUL fits an exponential to the vibration residual with a moving-block bootstrap for the interval. Every alert carries its drivers.
 * **Advisor** (`raqib/advisor.py`): branches the simulation from the current state (with the twin's reconciled levels) once per option and scores incident avoided, product spilled and throughput lost. Level L2: it recommends, the operator executes.
+* **3D map** (`raqib/geo.py`, `static/raqib_map.html`): CesiumJS 1.121 (Apache-2.0) with Esri World Imagery, so no Cesium ion token is needed. Equipment positions are illustrative, placed at the pilot coordinates from the design document. The page is served by Streamlit's static file server (`enableStaticServing` in `.streamlit/config.toml`) because Cesium's web workers do not start inside `components.html`. Cesium loads from the jsDelivr CDN; on an air-gapped network set `RAQIB_CESIUM_BASE` to a local copy of `Build/Cesium`. The map needs WebGL in the viewer's browser.
 * **Security** (`raqib/security.py`): the gateway has no write path; physics consistency plus network evidence separates instrument failure from manipulation.
 
 ## Acceptance tests (simulated data, held-out seeds)
@@ -102,7 +103,7 @@ These numbers describe the simulator, not field performance. The project targets
 | scikit-learn models | PyTorch LSTM / Temporal Fusion Transformer for RUL, MLflow registry, 3 months in shadow mode |
 | TF-IDF retrieval | On-prem open-weights LLM with pgvector RAG over SOPs, incident reports and manuals |
 | JSON work orders | SAP PM OData notifications |
-| Streamlit | React + Three.js/Cesium 3D site, mobile app for field crews |
+| Streamlit + CesiumJS on a schematic layout | React + CesiumJS with surveyed 3D Tiles of the real site, mobile app for field crews |
 
 ## Repository layout
 ```
@@ -114,10 +115,12 @@ raqib/advisor.py         risk index, what-if engine, work orders
 raqib/reliability.py     FMEA, CMMS history, Weibull
 raqib/security.py        connectors, data quality, gateway, IEC 62443
 raqib/assistant.py       retrieval assistant
+raqib/geo.py             site coordinates and scene data for the 3D map
+static/raqib_map.html    CesiumJS page embedded by the dashboard
 data/                    FMEA, CMMS history, illustrative procedures
 tests/                   pytest suite
 docs/linkedin_post.md    LinkedIn post drafts (Arabic and English)
 ```
 
 ## License
-MIT. Built with Python, Streamlit, scikit-learn, Plotly, NumPy and pandas.
+MIT. Built with Python, Streamlit, scikit-learn, Plotly, CesiumJS, NumPy and pandas. Satellite imagery © Esri, Maxar, Earthstar Geographics.

@@ -81,3 +81,21 @@ def test_models_pass_acceptance_on_unseen_runs():
     acc = eng.train_info["evaluation"]["acceptance"]
     assert acc["passed"].mean() >= 0.9
     assert acc.loc[acc["scenario"] == "normal", "false_alerts"].sum() == 0
+
+
+def test_map_scene_round_trips_through_the_url_hash():
+    import base64
+    import json
+
+    from raqib import geo
+    rows = [{"asset": "TK-101", "name": "خزان", "x": 0.0, "y": 0.0, "risk": 80.0, "P": 0.9, "C": 4.0, "B": 0.2, "band": "high"}]
+    xs, ys = np.linspace(0, 100, 20), np.linspace(0, 80, 16)
+    Z = np.outer(np.linspace(0, 120, 16), np.ones(20))
+    payload = geo.map_payload(rows, {"TK-101": 12.5}, True, overlay=geo.lel_overlay(xs, ys, Z))
+    url = geo.map_url(payload)
+    assert url.startswith("app/static/raqib_map.html")
+    h = url.split("#", 1)[1]
+    back = json.loads(base64.urlsafe_b64decode(h + "=" * (-len(h) % 4)))
+    assert back["ents"][0]["level"] == 12.5 and back["overlay"]["png"].startswith("data:image/png;base64,")
+    lon, lat = geo.to_lonlat(*geo.ORIGIN_XY)
+    assert (lon, lat) == (geo.ORIGIN_LON, geo.ORIGIN_LAT)

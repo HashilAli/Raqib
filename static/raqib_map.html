@@ -1,0 +1,108 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RAQIB site map</title>
+<!-- 3D site map for RAQIB, drawn with CesiumJS (Apache-2.0). Served by Streamlit's static file server
+     (app/static/raqib_map.html) and embedded with components.iframe; the scene arrives as base64url JSON
+     in the URL hash, written by raqib/geo.py. ?base= overrides where Cesium is loaded from. -->
+<style>html,body{margin:0;padding:0;height:100%;background:#1d2733;overflow:hidden}
+#map{width:100%;height:100%} .cesium-viewer-bottom{font-size:10px}
+#err{color:#fff;font:14px sans-serif;padding:20px;display:none}</style>
+</head><body>
+<div id="map"></div><div id="err">CesiumJS needs WebGL. Open the app in a desktop browser with hardware acceleration enabled.</div>
+<script>
+const CESIUM_VERSION = "1.121.0";
+const base = (new URLSearchParams(location.search).get("base")
+              || `https://cdn.jsdelivr.net/npm/cesium@${CESIUM_VERSION}/Build/Cesium`).replace(/\/$/, "");
+window.CESIUM_BASE_URL = base + "/";
+addEventListener("hashchange", () => location.reload());   // Streamlit updates only the hash on reruns
+const css = document.createElement("link");
+css.rel = "stylesheet"; css.href = base + "/Widgets/widgets.css"; document.head.appendChild(css);
+const s = document.createElement("script");
+s.src = base + "/Cesium.js"; s.onload = draw;
+s.onerror = () => { const e = document.getElementById("err"); e.textContent = "Could not load CesiumJS from " + base; e.style.display = "block"; };
+document.head.appendChild(s);
+
+function scene() {
+  const b64 = location.hash.slice(1).replace(/-/g, "+").replace(/_/g, "/");
+  const bin = atob(b64 + "===".slice((b64.length + 3) % 4));
+  return JSON.parse(new TextDecoder().decode(Uint8Array.from(bin, c => c.charCodeAt(0))));
+}
+
+function draw() {
+const D = scene();
+  try {
+    const viewer = new Cesium.Viewer('map', {
+      baseLayer: new Cesium.ImageryLayer(new Cesium.UrlTemplateImageryProvider({
+        url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+        maximumLevel: 19, credit: 'Imagery: Esri, Maxar, Earthstar Geographics'})),
+      terrainProvider: new Cesium.EllipsoidTerrainProvider(),
+      baseLayerPicker: false, geocoder: false, homeButton: true, sceneModePicker: true,
+      navigationHelpButton: false, animation: false, timeline: false, fullscreenButton: true,
+      infoBox: true, selectionIndicator: true,
+      contextOptions: {webgl: {preserveDrawingBuffer: true}}   // keeps screen captures of the map working
+    });
+    viewer.scene.globe.depthTestAgainstTerrain = false;
+    window.viewer = viewer;
+    viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString('#c9b48f');   // desert sand until imagery arrives
+    // site pad: keeps the layout readable even if satellite tiles are slow or blocked
+    viewer.entities.add({polygon: {hierarchy: Cesium.Cartesian3.fromDegreesArray(D.pad.flat()),
+        material: Cesium.Color.fromCssColorString('#8f969c').withAlpha(0.45), outline: true, outlineColor: Cesium.Color.WHITE, height: 0.2}});
+    const C = (hex, a) => Cesium.Color.fromCssColorString(hex).withAlpha(a === undefined ? 1 : a);
+    const P = (lon, lat, h) => Cesium.Cartesian3.fromDegrees(lon, lat, h || 0);
+    const label = (txt) => ({text: txt, font: 'bold 13px sans-serif', fillColor: Cesium.Color.WHITE,
+        outlineColor: Cesium.Color.BLACK, outlineWidth: 3, style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+        verticalOrigin: Cesium.VerticalOrigin.BOTTOM, pixelOffset: new Cesium.Cartesian2(0, -6),
+        disableDepthTestDistance: Number.POSITIVE_INFINITY});
+
+    viewer.entities.add({name: D.lineLabel, polyline: {positions: D.line.map(p => P(p[0], p[1], 1)), width: 7,
+        material: new Cesium.PolylineOutlineMaterialProperty({color: C('#3a3a3a'), outlineColor: C('#d0d0d0'), outlineWidth: 1})},
+        position: P(D.line[1][0], D.line[1][1], 4), label: label('← ' + D.lineLabel)});
+
+    for (const e of D.ents) {
+      if (e.tank) {
+        // tank shell (20 m high, 40 m diameter) and the twin-estimated liquid inside
+        viewer.entities.add({id: e.id + '-shell', name: e.name, description: e.desc, position: P(e.lon, e.lat, 10),
+          cylinder: {length: 20, topRadius: 20, bottomRadius: 20, material: C('#e8edf2', 0.35), outline: true, outlineColor: C(e.color)}});
+        const lv = Math.max(0.3, e.level);
+        viewer.entities.add({id: e.id, name: e.name, description: e.desc, position: P(e.lon, e.lat, lv / 2),
+          cylinder: {length: lv, topRadius: 19, bottomRadius: 19, material: C(e.color, 0.85)}});
+        viewer.entities.add({position: P(e.lon, e.lat, 22), label: label(e.id)});
+      } else {
+        viewer.entities.add({id: e.id, name: e.name, description: e.desc, position: P(e.lon, e.lat, 4),
+          box: {dimensions: new Cesium.Cartesian3(16, 16, 8), material: C(e.color, 0.9), outline: true, outlineColor: Cesium.Color.BLACK},
+          label: label(e.id)});
+        viewer.entities.getById(e.id).label.pixelOffset = new Cesium.Cartesian2(0, -18);
+      }
+      if (e.band === 'high') {
+        // pulsing ring to pull the eye to high-risk assets
+        let t0 = Date.now();
+        viewer.entities.add({position: P(e.lon, e.lat, 0.5), ellipse: {
+          semiMajorAxis: new Cesium.CallbackProperty(() => 25 + 15 * ((Date.now() - t0) % 1500) / 1500, false),
+          semiMinorAxis: new Cesium.CallbackProperty(() => 25 + 15 * ((Date.now() - t0) % 1500) / 1500, false),
+          material: C(e.color, 0.35), height: 0.5}});
+      }
+    }
+    if (D.overlay) {
+      const b = D.overlay.bounds;
+      viewer.entities.add({rectangle: {coordinates: Cesium.Rectangle.fromDegrees(b[0], b[1], b[2], b[3]),
+        material: new Cesium.ImageMaterialProperty({image: D.overlay.png, transparent: true}), height: 0.3}});
+    }
+    for (const a of D.arrows) {
+      viewer.entities.add({polyline: {positions: [P(a.from[0], a.from[1], 2), P(a.to[0], a.to[1], 2)], width: 18,
+        material: new Cesium.PolylineArrowMaterialProperty(C(a.color))}, position: P(a.to[0], a.to[1], 3), label: label(a.label)});
+    }
+    for (const m of D.markers) {
+      viewer.entities.add({position: P(m.pos[0], m.pos[1], 2), point: {pixelSize: 11, color: C(m.color), outlineColor: Cesium.Color.WHITE,
+        outlineWidth: 2, disableDepthTestDistance: Number.POSITIVE_INFINITY}, label: label(m.label)});
+    }
+    const home = {destination: P(D.origin[0] + 0.0002, D.origin[1] - 0.0036, 330),
+                  orientation: {heading: 0, pitch: Cesium.Math.toRadians(-40), roll: 0}};
+    viewer.camera.setView(home);
+    viewer.homeButton.viewModel.command.beforeExecute.addEventListener(ev => { ev.cancel = true; viewer.camera.flyTo(home); });
+  } catch (err) {
+    document.getElementById('err').style.display = 'block';
+    console.error(err);
+  }
+}
+</script>
+</body></html>

@@ -10,8 +10,9 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+import streamlit.components.v1 as components
 
-from raqib import advisor, plant, reliability, security
+from raqib import advisor, geo, plant, reliability, security
 from raqib.assistant import Assistant
 from raqib.models import CLASS_FEATURES, CLASSES, Engine, first_alert, prepare, psi, pump_rul, train
 from raqib.plant import LSHH_LEVEL, STEPS_PER_H, SWITCH_LEVEL, VIB_ALARM, VIB_TRIP
@@ -215,6 +216,12 @@ def badge(band: str) -> str:
     return f'<span class="raqib-badge b-{band}">{txt}</span>'
 
 
+def cesium_map(height: int = 520, **kw):
+    rows = [dict(r, name=r["name_ar"] if AR else r["name_en"], band=advisor.risk_band(r["risk"])) for r in risk.to_dict("records")]
+    levels = {t: float(sh[f"{t}_est"].iat[-1]) for t in ("TK-101", "TK-103", "TK-102")}
+    components.iframe(geo.map_url(geo.map_payload(rows, levels, AR, **kw)), height=height)
+
+
 def time_axis(fig, h=320):
     fig.update_layout(height=h, margin=dict(l=10, r=10, t=30, b=10), legend=dict(orientation="h", y=-0.2),
                       hovermode="x unified")
@@ -237,22 +244,9 @@ def page_control():
     left, right = st.columns([3, 2])
     with left:
         st.subheader(L("خريطة الموقع ملونة بمؤشر الخطر الحي", "Site map coloured by the live risk index"))
-        colors = {"high": "#d62728", "medium": "#f0a202", "low": "#2ca02c"}
-        fig = go.Figure()
-        fig.add_shape(type="line", x0=-20, y0=140, x1=60, y1=140, line=dict(color="#555", width=6))
-        fig.add_annotation(x=-10, y=150, text=L("خط المنتجات ←", "← products line"), showarrow=False)
-        for _, r in risk.iterrows():
-            band = advisor.risk_band(r["risk"])
-            size = 60 if r["asset"].startswith("TK") else 34
-            fig.add_trace(go.Scatter(x=[r["x"]], y=[r["y"]], mode="markers+text",
-                                     marker=dict(size=size, color=colors[band], line=dict(color="#333", width=1),
-                                                 symbol="circle" if r["asset"].startswith("TK") else "square"),
-                                     text=[r["asset"]], textposition="bottom center",
-                                     hovertext=f"{r['name_ar'] if AR else r['name_en']}<br>R={r['risk']:.0f} · P={r['P']:.0%} · C={r['C']:.1f} · B={r['B']:.1f}",
-                                     hoverinfo="text", showlegend=False))
-        fig.update_xaxes(visible=False, range=[-30, 380]); fig.update_yaxes(visible=False, range=[0, 310])
-        fig.update_layout(height=380, margin=dict(l=0, r=0, t=0, b=0), plot_bgcolor="#f6f7f9")
-        st.plotly_chart(fig, width="stretch")
+        cesium_map(440)
+        st.caption(L("خريطة ثلاثية الأبعاد (CesiumJS). ارتفاع السائل داخل كل خزان من تقدير التوأم، واللون من مؤشر الخطر. اضغط أي معدة لتفاصيلها. المخطط توضيحي على إحداثيات الموقع التجريبي في وثيقة المشروع.",
+                     "3D map (CesiumJS). Liquid height in each tank is the twin's estimate; colour is the risk index. Click any asset for details. Illustrative layout at the pilot coordinates from the project document."))
         st.caption("R = P × C × (1 − B)  · " + L("P احتمال الحادث، C العواقب من FMEA، B فاعلية الحواجز.",
                                               "P incident probability, C consequence from FMEA, B barrier effectiveness."))
     with right:
@@ -521,24 +515,14 @@ def page_emergency():
     gx, gy = np.meshgrid(xs - src[0], ys - src[1])
     xdn, ycr = gx * np.sin(th) + gy * np.cos(th), gx * np.cos(th) - gy * np.sin(th)
     Z = np.vectorize(lambda a, b: 100 * plant.plume_conc(q, a, b, r["WIND-SPD"], night) / plant.LFL_G_M3 if a > 0 else 0.0)(xdn, ycr)
-    fig = go.Figure(go.Heatmap(x=xs, y=ys, z=np.where(Z >= 5, np.clip(Z, 0, 150), np.nan), colorscale="YlOrRd",
-                               zmin=5, zmax=150, colorbar=dict(title="% LEL"), hoverinfo="skip"))
-    fig.add_trace(go.Contour(x=xs, y=ys, z=Z, contours=dict(coloring="none", showlabels=True, start=25, end=100, size=25),
-                             line=dict(color="#7a0000", width=1), showscale=False, showlegend=False, hoverinfo="skip"))
-    det = (src[0] + plant.DETECTOR_DIST * np.sin(np.radians(plant.DETECTOR_BEARING)), src[1] + plant.DETECTOR_DIST * np.cos(np.radians(plant.DETECTOR_BEARING)))
-    fig.add_trace(go.Scatter(x=[det[0]], y=[det[1]], mode="markers+text", text=["GD-01"], textposition="bottom center",
-                             marker=dict(symbol="diamond", size=10, color="#1f77b4"), showlegend=False))
-    for _, a in risk.iterrows():
-        fig.add_trace(go.Scatter(x=[a["x"]], y=[a["y"]], mode="markers+text", text=[a["asset"]], marker=dict(size=10, color="#333"),
-                                 textposition="top center", showlegend=False))
-    up = (src[0] - 80 * np.sin(th), src[1] - 80 * np.cos(th))
-    fig.add_annotation(x=up[0], y=up[1], ax=src[0] - 15 * np.sin(th), ay=src[1] - 15 * np.cos(th), xref="x", yref="y", axref="x", ayref="y",
-                       text="", arrowhead=3, arrowcolor="green", arrowwidth=3, showarrow=True)
-    fig.add_annotation(x=up[0], y=up[1] - 12, text=L("الإخلاء عكس الريح", "Evacuate upwind"), showarrow=False, font=dict(color="green"))
-    fig.update_layout(height=470, margin=dict(l=0, r=0, t=10, b=0), plot_bgcolor="#f6f7f9")
-    fig.update_xaxes(range=[-30, 400], showgrid=False)
-    fig.update_yaxes(scaleanchor="x", range=[-20, 310], showgrid=False)
-    st.plotly_chart(fig, width="stretch")
+    det = (src[0] + plant.DETECTOR_DIST * np.sin(np.radians(plant.DETECTOR_BEARING)),
+           src[1] + plant.DETECTOR_DIST * np.cos(np.radians(plant.DETECTOR_BEARING)))
+    up = (src[0] - 90 * np.sin(th), src[1] - 90 * np.cos(th))
+    cesium_map(500, overlay=geo.lel_overlay(xs, ys, Z) if q > 0 else None,
+               arrows=[{"x0": src[0] - 15 * np.sin(th), "y0": src[1] - 15 * np.cos(th), "x1": up[0], "y1": up[1],
+                        "color": "#2ca02c", "label": L("الإخلاء عكس الريح", "Evacuate upwind")}],
+               markers=[{"x": det[0], "y": det[1], "label": "GD-01", "color": "#1f77b4"}])
+    st.caption(L("الألوان: تركيز الأبخرة % LEL (أصفر 5% حتى أحمر داكن فوق 100%).", "Colours: vapour concentration % LEL (yellow 5% to dark red above 100%)."))
     zone = (Z >= 100).sum() * (xs[1] - xs[0]) * (ys[1] - ys[0])
     st.caption(L(f"مساحة المنطقة القابلة للاشتعال (≥100% LEL): {zone:,.0f} م². نموذج غاوسي مبسط (Briggs) للتوضيح؛ في المشروع الحقيقي PHAST أو CFD.",
                  f"Flammable area (≥100% LEL): {zone:,.0f} m². Simplified Gaussian (Briggs) model for illustration; the real project uses PHAST or CFD."))
