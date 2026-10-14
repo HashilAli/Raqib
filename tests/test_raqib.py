@@ -99,3 +99,20 @@ def test_map_scene_round_trips_through_the_url_hash():
     assert back["ents"][0]["level"] == 12.5 and back["overlay"]["png"].startswith("data:image/png;base64,")
     lon, lat = geo.to_lonlat(*geo.ORIGIN_XY)
     assert (lon, lat) == (geo.ORIGIN_LON, geo.ORIGIN_LAT)
+
+
+def test_hmi_overview_and_alarm_summary_render():
+    import pandas as pd
+
+    from raqib import hmi
+    df = plant.run_scenario("overfill", seed=1, days=2)
+    labels = {"refinery": "FROM REFINERY", "loading": "LOADING", "gasoline": "GASOLINE", "diesel": "DIESEL",
+              "est": "TWIN", "recv": "RECV"}
+    svg = hmi.overview_svg(df.iloc[-1], {"TK-101": 16.7}, {"TK-101": 1, "P-201A": 2}, labels)
+    assert svg.startswith("<svg") and svg.count(hmi.P1) >= 2 and hmi.P2 in svg
+    rows = [{"priority": 2, "start": pd.Timestamp("2026-07-18 04:20"), "tag": "P-201A", "text": "Pump failure", "value": "P 90%", "acked": True},
+            {"priority": 1, "start": pd.Timestamp("2026-07-18 05:00"), "tag": "TK-101", "text": "Tank <overfill>", "value": "P 95%", "acked": False}]
+    t = hmi.alarm_summary(rows, ar=False)
+    assert t.index("TK-101") < t.index("P-201A")          # priority 1 is listed first
+    assert "pri p1 unack" in t and "&lt;overfill&gt;" in t
+    assert hmi.priority({"class": "pump_trip", "p": 0.99}) == 2 and hmi.priority({"class": "vapor", "p": 0.6}) == 1

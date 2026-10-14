@@ -28,9 +28,11 @@ short_description: Digital twin that predicts terminal incidents before they hap
 Deep links work for sharing a specific screen, for example `?lang=en&scenario=pump&page=asset`.
 
 ## Screens
+The screens follow ISA-101 high-performance HMI practice so they look like the control-system displays operators already use: grey background, equipment in dark grey, values in a fixed-width face, and colour only for abnormal states. A header strip and an ISA-18.2 style alarm summary (priority shape and number, start time, tag, value, acknowledged state) sit on every screen, and unacknowledged alarms blink until the operator rates them.
+
 | Screen | What it shows | Team role |
 |---|---|---|
-| 🏭 Control room | 3D CesiumJS site map (tank fill = twin-estimated level) coloured by live risk `R = P × C × (1 − B)`, top 5 predictions, alerts with reasons, operator verdict buttons | UI developer |
+| 🏭 Control room | Process overview graphic (simplified P&ID with live tags, gauge vs twin level, alarm indicators) and a 3D CesiumJS site map (tank fill = twin-estimated level) coloured by live risk `R = P × C × (1 − B)`, top 5 predictions, alerts with reasons, operator verdict buttons | UI developer |
 | 🔁 Digital twin | Shadow mode: measured vs expected, residuals, 24 h look-ahead to the LSHH, ±2% accuracy check | Process / simulation |
 | ⚙️ Asset card P-201A | Vibration trend, exponential RUL with P10–P90, deviation drivers, Weibull from CMMS history | Reliability, ML |
 | 🧪 What-if & solutions | 2–4 options per alert, each simulated forward on the twin and ranked; CMMS work-order draft | Process, reliability |
@@ -115,6 +117,7 @@ raqib/advisor.py         risk index, what-if engine, work orders
 raqib/reliability.py     FMEA, CMMS history, Weibull
 raqib/security.py        connectors, data quality, gateway, IEC 62443
 raqib/assistant.py       retrieval assistant
+raqib/hmi.py             ISA-101 look: styles, alarm summary, process overview graphic
 raqib/geo.py             site coordinates and scene data for the 3D map
 static/raqib_map.html    CesiumJS page embedded by the dashboard
 data/                    FMEA, CMMS history, illustrative procedures

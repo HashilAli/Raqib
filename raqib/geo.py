@@ -25,7 +25,7 @@ ORIGIN_XY = (180.0, 160.0)                       # site-sketch point that sits o
 M_PER_DEG_LAT = 111_320.0
 M_PER_DEG_LON = M_PER_DEG_LAT * np.cos(np.radians(ORIGIN_LAT))
 
-BAND_COLOR = {"high": "#d62728", "medium": "#f0a202", "low": "#2ca02c"}
+BAND_COLOR = {"high": "#e00000", "medium": "#f2a900", "low": "#8c8c8c"}   # ISA-101: colour only when abnormal
 
 
 def to_lonlat(x: float, y: float) -> tuple[float, float]:

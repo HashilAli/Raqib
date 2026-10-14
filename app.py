@@ -12,7 +12,7 @@ import plotly.graph_objects as go
 import streamlit as st
 import streamlit.components.v1 as components
 
-from raqib import advisor, geo, plant, reliability, security
+from raqib import advisor, geo, hmi, plant, reliability, security
 from raqib.assistant import Assistant
 from raqib.models import CLASS_FEATURES, CLASSES, Engine, first_alert, prepare, psi, pump_rul, train
 from raqib.plant import LSHH_LEVEL, STEPS_PER_H, SWITCH_LEVEL, VIB_ALARM, VIB_TRIP
@@ -34,16 +34,8 @@ def L(ar: str, en: str) -> str:
 
 
 AR = st.session_state.lang == "ar"
-st.markdown(f"""
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&display=swap');
-html, body, [class*="css"], .stMarkdown, .stText, label, button, input, textarea {{ font-family: 'Tajawal', 'Segoe UI', sans-serif; }}
-{'''.stMarkdown, .stAlert, [data-testid="stMetric"], [data-testid="stCaptionContainer"], h1, h2, h3, h4, label, .stRadio, .stCheckbox, [data-testid="stExpander"] summary {direction: rtl; text-align: right;}
-section[data-testid="stSidebar"] {direction: rtl;}''' if AR else ''}
-.raqib-badge {{display:inline-block;padding:2px 10px;border-radius:12px;font-weight:600;font-size:0.85rem}}
-.b-high {{background:#fde2e2;color:#a61b1b}} .b-medium {{background:#fff1cc;color:#8a5a00}} .b-low {{background:#dff5e3;color:#1d6b33}}
-</style>
-""", unsafe_allow_html=True)
+st.html(hmi.css(AR))   # style-only st.html is applied page-wide without taking space
+hmi.register_plotly_template()
 
 SCENARIO_LABEL = {
     "normal": ("تشغيل طبيعي", "Normal operation"),
@@ -125,7 +117,7 @@ def get_whatif(scenario: str, seed: int, lshh: bool, standby: bool, i: int, cls:
 
 # ------------------------------------------------------------------ sidebar
 with st.sidebar:
-    st.markdown("## 🛡️ RAQIB · رقيب")
+    st.markdown("## RAQIB · رقيب")
     lang = st.radio("Language / اللغة", ["العربية", "English"], horizontal=True,
                     index=0 if st.session_state.lang == "ar" else 1)
     new_lang = "ar" if lang == "العربية" else "en"
@@ -134,17 +126,17 @@ with st.sidebar:
         st.rerun()
 
     PAGES = {
-        "control": ("🏭 غرفة القيادة", "🏭 Control room"),
-        "twin": ("🔁 التوأم الرقمي", "🔁 Digital twin"),
-        "asset": ("⚙️ بطاقة المعدة P-201A", "⚙️ Asset card P-201A"),
-        "advisor": ("🧪 ماذا لو والحلول", "🧪 What-if & solutions"),
-        "emergency": ("🚨 مركز الطوارئ", "🚨 Emergency centre"),
-        "fmea": ("📋 FMEA والموثوقية", "📋 FMEA & reliability"),
-        "mlops": ("🧠 النماذج وMLOps", "🧠 Models & MLOps"),
-        "security": ("🔐 تكامل OT والأمن", "🔐 OT integration & security"),
-        "assistant": ("💬 المساعد", "💬 Assistant"),
-        "voice": ("🗣️ صوت المشغل", "🗣️ Operator voice"),
-        "about": ("👥 الفريق والمعمارية", "👥 Team & architecture"),
+        "control": ("غرفة القيادة", "Control room"),
+        "twin": ("التوأم الرقمي", "Digital twin"),
+        "asset": ("بطاقة المعدة P-201A", "Asset card P-201A"),
+        "advisor": ("ماذا لو والحلول", "What-if & solutions"),
+        "emergency": ("مركز الطوارئ", "Emergency centre"),
+        "fmea": ("FMEA والموثوقية", "FMEA & reliability"),
+        "mlops": ("النماذج وMLOps", "Models & MLOps"),
+        "security": ("تكامل OT والأمن", "OT integration & security"),
+        "assistant": ("المساعد", "Assistant"),
+        "voice": ("صوت المشغل", "Operator voice"),
+        "about": ("الفريق والمعمارية", "Team & architecture"),
     }
     page = st.radio(L("الشاشة", "Screen"), list(PAGES), format_func=lambda k: L(*PAGES[k]),
                     index=list(PAGES).index(st.session_state.page0) if st.session_state.page0 in PAGES else 0)
@@ -223,14 +215,53 @@ def cesium_map(height: int = 520, **kw):
 
 
 def time_axis(fig, h=320):
-    fig.update_layout(height=h, margin=dict(l=10, r=10, t=30, b=10), legend=dict(orientation="h", y=-0.2),
+    fig.update_layout(height=h, margin=dict(l=10, r=10, t=30, b=10), legend=dict(orientation="h", y=-0.2), paper_bgcolor=hmi.PANEL,
                       hovermode="x unified")
     return fig
 
 
+def alarm_rows() -> list[dict]:
+    rows = []
+    acked = {(f["scenario"], f["class"]) for f in st.session_state.feedback}
+    for a in alerts:
+        c = a["class"]
+        if c == "integrity":
+            tag = a["tank"]
+            value = f'{df[f"LT-{tag[-3:]}"].iat[-1]:.2f}/{sh[tag + "_est"].iat[-1]:.2f} m'
+        elif c == "overfill":
+            tag = risk[risk["class"] == "overfill"].iloc[0]["asset"]
+            value = f'P {a["p"]:.0%}'
+        else:
+            tag = hmi.CLASS_ASSET[c]
+            value = f'P {a["p"]:.0%}'
+        rows.append({"priority": hmi.priority(a), "start": now - pd.Timedelta(hours=a["since_h"]), "tag": tag,
+                     "text": cl(c), "value": value, "acked": (scenario, c) in acked})
+    return rows
+
+
+def hmi_banner():
+    st.markdown(hmi.header(L(*PAGES[page]), L("محطة منتجات افتراضية", "Virtual products terminal"), now,
+                           L(*SCENARIO_LABEL[scenario]), shadow_mode, AR), unsafe_allow_html=True)
+    st.markdown(hmi.alarm_summary([] if shadow_mode else alarm_rows(), AR), unsafe_allow_html=True)
+
+
+def process_overview():
+    tags = df.iloc[-1]
+    est = {t: float(sh[f"{t}_est"].iat[-1]) for t in ("TK-101", "TK-103", "TK-102")}
+    alarms = {}
+    for r in ([] if shadow_mode else alarm_rows()):
+        alarms[r["tag"]] = min(alarms.get(r["tag"], 9), r["priority"])
+    labels = {"refinery": L("من المصفاة ←", "FROM REFINERY →"), "loading": L("تحميل الصهاريج", "TRUCK LOADING"),
+              "gasoline": L("بنزين", "GASOLINE"), "diesel": L("ديزل", "DIESEL"), "est": L("التوأم", "TWIN"),
+              "recv": L("يستلم", "RECV")}
+    st.markdown(hmi.overview_svg(tags, est, alarms, labels, lshh=LSHH_LEVEL), unsafe_allow_html=True)
+    st.caption(L("المثلث الأسود بجانب الخزان = قراءة المقياس، والتعبئة = تقدير التوأم. الألوان للإنذارات فقط: مربع أحمر أولوية 1، مثلث أصفر أولوية 2، ويومض حتى يُقرّ المشغل.",
+                 "Black pointer beside a tank = gauge reading; fill = twin estimate. Colour is used only for alarms: red square priority 1, amber triangle priority 2, blinking until the operator acknowledges."))
+
+
 # ================================================================== pages
 def page_control():
-    st.title(L("🏭 غرفة القيادة — رقيب", "🏭 Control room — RAQIB"))
+    st.title(L("غرفة القيادة · نظرة عامة على المحطة", "Control room · terminal overview"))
     st.caption(f"{L('محطة منتجات افتراضية', 'Virtual product terminal')} · {now:%Y-%m-%d %H:%M} · {L(*SCENARIO_LABEL[scenario])}")
     acc = twin_accuracy(df, sh)
     dq = security.data_quality(df_all, sh_all, i)
@@ -241,27 +272,30 @@ def page_control():
     c4.metric(L("دقة التوأم (ضمن ±2%)", "Twin accuracy (within ±2%)"), f"{acc['within_2pct'].median():.0f}%")
     c5.metric(L("جودة البيانات", "Data quality"), f"{(dq['status'] == 'OK').mean():.0%}")
 
+    t1, t2 = st.tabs([L("مخطط العملية", "Process overview"), L("الموقع ثلاثي الأبعاد", "3D site")])
+    with t1:
+        process_overview()
+    with t2:
+        cesium_map(520)
+        st.caption(L("خريطة ثلاثية الأبعاد (CesiumJS). ارتفاع السائل داخل كل خزان من تقدير التوأم، واللون من مؤشر الخطر. اضغط أي معدة لتفاصيلها. المخطط توضيحي على أرض فارغة قرب إحداثيات الموقع التجريبي.",
+                     "3D map (CesiumJS). Liquid height in each tank is the twin's estimate; colour is the risk index. Click any asset for details. Illustrative layout on open ground near the pilot coordinates."))
     left, right = st.columns([3, 2])
-    with left:
-        st.subheader(L("خريطة الموقع ملونة بمؤشر الخطر الحي", "Site map coloured by the live risk index"))
-        cesium_map(440)
-        st.caption(L("خريطة ثلاثية الأبعاد (CesiumJS). ارتفاع السائل داخل كل خزان من تقدير التوأم، واللون من مؤشر الخطر. اضغط أي معدة لتفاصيلها. المخطط توضيحي على إحداثيات الموقع التجريبي في وثيقة المشروع.",
-                     "3D map (CesiumJS). Liquid height in each tank is the twin's estimate; colour is the risk index. Click any asset for details. Illustrative layout at the pilot coordinates from the project document."))
-        st.caption("R = P × C × (1 − B)  · " + L("P احتمال الحادث، C العواقب من FMEA، B فاعلية الحواجز.",
-                                              "P incident probability, C consequence from FMEA, B barrier effectiveness."))
     with right:
-        st.subheader(L("أهم 5 تنبؤات", "Top 5 predictions"))
+        st.subheader(L("أعلى 5 مخاطر", "Top 5 risks"))
         top = risk.head(5).copy()
         for _, r in top.iterrows():
             band = advisor.risk_band(r["risk"])
             st.markdown(f"**{r['asset']}** · {cl(r['class'])} {badge(band)}  \n"
                         f"{L('الخطر', 'Risk')} {r['risk']:.0f} · P {r['P']:.0%}", unsafe_allow_html=True)
+        st.caption("R = P × C × (1 − B)  · " + L("P احتمال الحادث، C العواقب من FMEA، B فاعلية الحواجز.",
+                                              "P incident probability, C consequence from FMEA, B barrier effectiveness."))
+    with left:
         st.subheader(L("التنبيهات", "Alerts"))
         if shadow_mode:
             st.info(L("وضع الظل مفعل: التنبؤات تُسجل للتقييم ولا تظهر للمشغل.",
                       "Shadow mode is on: predictions are logged for evaluation, not shown to operators."))
         elif not alerts:
-            st.success(L("لا توجد تنبيهات. كل المعدات ضمن السلوك المتوقع.", "No alerts. Every asset behaves as the twin expects."))
+            st.info(L("لا توجد تنبيهات. كل المعدات ضمن السلوك المتوقع.", "No alerts. Every asset behaves as the twin expects."))
         for a in ([] if shadow_mode else alerts):
             with st.container(border=True):
                 if a["class"] == "integrity":
@@ -294,6 +328,7 @@ def page_control():
                         st.session_state.feedback.append({"time": str(now), "scenario": scenario, "class": a["class"],
                                                           "p": round(a["p"], 3), "label": val})
                         st.toast(L("شكراً، سُجل التقييم لتدريب النموذج القادم.", "Thanks, logged for the next model."))
+                        st.rerun()   # the alarm summary above shows the alarm as acknowledged
 
     st.subheader(L("احتمال كل نوع حادث خلال 12 ساعة", "Probability of each incident type within 12 h"))
     fig = go.Figure()
@@ -307,7 +342,7 @@ def page_control():
         if e["time"] <= now:
             fig.add_vline(x=e["time"], line_color="red", line_dash="dash")
     fig.update_yaxes(range=[0, 1.02], tickformat=".0%")
-    st.plotly_chart(time_axis(fig), width="stretch")
+    st.plotly_chart(time_axis(fig), width="stretch", theme=None)
     future = df_all[(df_all["event"] != "") & (df_all["time"] > now)]
     if len(future):
         e = future.iloc[0]
@@ -316,7 +351,7 @@ def page_control():
 
 
 def page_twin():
-    st.title(L("🔁 التوأم الرقمي في وضع الظل", "🔁 Digital twin in shadow mode"))
+    st.title(L("التوأم الرقمي في وضع الظل", "Digital twin in shadow mode"))
     st.markdown(L("التوأم يستقبل نفس مدخلات الموقع ويحسب ما **يجب** أن تقرأه المستشعرات (موازنة الكتلة، منحنى المضخة، انحدار الضغط). الفرق المستمر بين المقيس والمتوقع هو أول علامة على عطل أو مستشعر كاذب.",
                   "The twin takes the same inputs as the site and computes what each sensor **should** read (mass balance, pump curve, hydraulic gradient). A persistent gap between measured and expected is the first sign of a failing asset or a lying sensor."))
     show_truth = st.toggle(L("إظهار الحقيقة المخفية (متاح في المحاكاة فقط)", "Show hidden ground truth (simulation only)"), False)
@@ -337,11 +372,11 @@ def page_twin():
         fig.add_hline(y=SWITCH_LEVEL, line_dash="dot", annotation_text=L("حد التشغيل 17 م", "operating limit 17 m"))
         fig.add_hline(y=LSHH_LEVEL, line_color="red", annotation_text="LSHH 19 m")
         fig.update_yaxes(title=L("المستوى (م)", "Level (m)"))
-        st.plotly_chart(time_axis(fig), width="stretch")
+        st.plotly_chart(time_axis(fig), width="stretch", theme=None)
         fig2 = go.Figure(go.Scatter(x=t, y=sh.loc[W, f"{tank}_res"], name="residual", fill="tozeroy"))
         fig2.add_hline(y=0.15, line_dash="dot"); fig2.add_hline(y=-0.15, line_dash="dot")
         fig2.update_yaxes(title=L("الفرق (م)", "Residual (m)"))
-        st.plotly_chart(time_axis(fig2, 220), width="stretch")
+        st.plotly_chart(time_axis(fig2, 220), width="stretch", theme=None)
 
         st.subheader(L("المحاكاة الاستباقية للخزان المستلم (24 ساعة)", "Look-ahead for the receiving tank (24 h)"))
         la = lookahead_tank(df, sh, len(df) - 1)
@@ -355,17 +390,17 @@ def page_twin():
         fig3.add_trace(go.Scatter(x=la["proj_h"], y=la["proj_est"], name=L("إسقاط من التوأم", "Projected from twin"), line=dict(dash="dash")))
         fig3.add_hline(y=LSHH_LEVEL, line_color="red")
         fig3.update_xaxes(title=L("ساعات من الآن", "hours from now")); fig3.update_yaxes(title="m")
-        st.plotly_chart(time_axis(fig3, 260), width="stretch")
+        st.plotly_chart(time_axis(fig3, 260), width="stretch", theme=None)
     elif group == "pipeline":
         fig = go.Figure()
         fig.add_trace(go.Scatter(x=t, y=df.loc[W, "FI-001"], name="FI-001 " + L("(محطة البداية)", "(upstream)")))
         fig.add_trace(go.Scatter(x=t, y=df.loc[W, "FI-002"], name="FI-002 " + L("(الوصول)", "(arrival)")))
         fig.update_yaxes(title="m³/h")
-        st.plotly_chart(time_axis(fig), width="stretch")
+        st.plotly_chart(time_axis(fig), width="stretch", theme=None)
         fig2 = go.Figure(go.Scatter(x=t, y=sh.loc[W, "line_imbalance_pct"], fill="tozeroy", name=L("اختلال الموازنة %", "Imbalance %")))
         fig2.add_trace(go.Scatter(x=t, y=X.loc[W, "line_cusum"] / 10, name="CUSUM / 10"))
         fig2.add_hline(y=1.0, line_dash="dot")
-        st.plotly_chart(time_axis(fig2, 240), width="stretch")
+        st.plotly_chart(time_axis(fig2, 240), width="stretch", theme=None)
         lp = sh["leak_pos_frac"].iloc[-STEPS_PER_H:].median()
         if p_now["leak"] >= ALERT_THR and np.isfinite(lp):
             st.error(L(f"تسرب مرجح عند {lp * 60:.1f} كم من محطة البداية (القطاع S3).", f"Likely leak at {lp * 60:.1f} km from the upstream station (segment S3)."))
@@ -378,18 +413,18 @@ def page_twin():
         fig.add_hline(y=VIB_ALARM, line_dash="dot", annotation_text="alarm 4.5")
         fig.add_hline(y=VIB_TRIP, line_color="red", annotation_text="trip 7.1")
         fig.update_yaxes(title="mm/s")
-        st.plotly_chart(time_axis(fig), width="stretch")
+        st.plotly_chart(time_axis(fig), width="stretch", theme=None)
         fig2 = go.Figure()
         fig2.add_trace(go.Scatter(x=t, y=df.loc[W, "P201-PDIS"], name=L("ضغط الطرد", "Discharge pressure")))
         fig2.add_trace(go.Scatter(x=t, y=sh.loc[W, "P201-PDIS_exp"], name=L("منحنى المضخة", "Pump curve"), line=dict(dash="dash")))
-        st.plotly_chart(time_axis(fig2, 240), width="stretch")
+        st.plotly_chart(time_axis(fig2, 240), width="stretch", theme=None)
     st.subheader(L("معيار القبول: دقة التوأم ±2%", "Acceptance: twin accuracy ±2%"))
     acc = twin_accuracy(df, sh).rename(columns={"tag": "Tag", "mape_pct": "MAPE %", "err_pct_span": "err % of span", "within_2pct": "% within ±2%"})
     st.dataframe(acc.round(2), width="stretch", hide_index=True)
 
 
 def page_asset():
-    st.title(L("⚙️ بطاقة المعدة: مضخة التحميل P-201A", "⚙️ Asset card: loading pump P-201A"))
+    st.title(L("بطاقة المعدة: مضخة التحميل P-201A", "Asset card: loading pump P-201A"))
     run = df["PUMP-RUN"].iat[-1]
     c1, c2, c3, c4 = st.columns(4)
     c1.metric(L("المضخة العاملة", "Running pump"), {"A": "P-201A", "B": "P-201B", "-": L("متوقفة", "stopped")}[run])
@@ -406,11 +441,11 @@ def page_asset():
     fig.add_trace(go.Scatter(x=W["time"], y=W["P201-VIB"].rolling(H, min_periods=1).mean(), name=L("الاهتزاز (متوسط ساعة)", "Vibration (1 h mean)")))
     if rul["fit_t"] is not None:
         ft = now + pd.to_timedelta(rul["fit_t"], unit="h")
-        fig.add_trace(go.Scatter(x=ft, y=rul["fit_y"], name=L("نموذج التدهور الأسي", "Exponential degradation fit"), line=dict(dash="dash", color="#d62728")))
+        fig.add_trace(go.Scatter(x=ft, y=rul["fit_y"], name=L("نموذج التدهور الأسي", "Exponential degradation fit"), line=dict(dash="dash", color="#1a1a1a")))
     fig.add_hline(y=VIB_ALARM, line_dash="dot", annotation_text="ISO 10816 alarm")
     fig.add_hline(y=VIB_TRIP, line_color="red", annotation_text="trip")
     fig.update_yaxes(title="mm/s", range=[0, 8])
-    st.plotly_chart(time_axis(fig, 340), width="stretch")
+    st.plotly_chart(time_axis(fig, 340), width="stretch", theme=None)
 
     a, b = st.columns(2)
     with a:
@@ -418,10 +453,10 @@ def page_asset():
         dv = eng.deviations(X.iloc[-1], "pump_trip")
         dv["feature"] = dv["feature"].map(fl)
         fig = go.Figure(go.Bar(x=dv["z"], y=dv["feature"], orientation="h",
-                               marker_color=np.where(dv["z"] > 3, "#d62728", np.where(dv["z"] > 1.5, "#f0a202", "#2ca02c"))))
+                               marker_color=np.where(dv["z"] > 3, hmi.P1, np.where(dv["z"] > 1.5, hmi.P2, "#7a7a7a"))))
         fig.add_vline(x=3, line_dash="dot")
         fig.update_layout(height=230, margin=dict(l=10, r=10, t=10, b=10), xaxis_title=L("انحراف عن الطبيعي (σ)", "deviation from normal (σ)"))
-        st.plotly_chart(fig, width="stretch")
+        st.plotly_chart(fig, width="stretch", theme=None)
         st.caption(L("كل عمود يبين كم يبعد المؤشر عن قيمته في التشغيل السليم، مقاساً بالانحراف المعياري.",
                      "Each bar shows how far a signal sits from healthy operation, in standard deviations."))
     with b:
@@ -434,7 +469,7 @@ def page_asset():
         R = reliability.conditional_reliability(age, hz, wb["beta"], wb["eta"])
         fig = go.Figure(go.Scatter(x=hz / 24, y=R, name="R(t | age)"))
         fig.update_layout(height=230, margin=dict(l=10, r=10, t=10, b=10), xaxis_title=L("أيام", "days"), yaxis_tickformat=".1%")
-        st.plotly_chart(fig, width="stretch")
+        st.plotly_chart(fig, width="stretch", theme=None)
         st.caption(f"β = {wb['beta']:.2f}, η = {wb['eta']:,.0f} h, MTBF ≈ {wb['mtbf']:,.0f} h · "
                    + L(f"عمر التشغيل منذ آخر إصلاح ≈ {age:,.0f} ساعة. Weibull يعطي الخطر المسبق، والاهتزاز يحدّثه لحظياً.",
                        f"run-hours since last repair ≈ {age:,.0f}. Weibull gives the prior; vibration updates it live."))
@@ -443,7 +478,7 @@ def page_asset():
 
 
 def page_advisor():
-    st.title(L("🧪 محرك الحلول: ماذا لو؟", "🧪 Solution engine: what if?"))
+    st.title(L("محرك الحلول: ماذا لو؟", "Solution engine: what if?"))
     st.markdown(L("لكل تنبيه يولد رقيب 2–4 خيارات، **ويجربها على التوأم** من الحالة الحالية، ثم يرتبها حسب: هل تمنع الحادث، كمية المنتج المسكوب، والفاقد الإنتاجي. **المستوى L2 مستشار:** المشغل ينفذ يدوياً عبر DCS.",
                   "For each alert RAQIB generates 2–4 options, **tests each on the twin** from the current state, then ranks them by: does it prevent the incident, product spilled, and throughput lost. **Level L2 advisor:** the operator executes through the DCS."))
     default = next((a["class"] for a in alerts if a["class"] != "integrity"),
@@ -476,7 +511,7 @@ def page_advisor():
     if cls in ("overfill", "cyber"):
         fig.add_hline(y=LSHH_LEVEL, line_color="red", annotation_text="LSHH")
     fig.update_xaxes(title=L("ساعات من الآن", "hours from now"))
-    st.plotly_chart(time_axis(fig, 320), width="stretch")
+    st.plotly_chart(time_axis(fig, 320), width="stretch", theme=None)
 
     st.subheader(L("الموافقة وأمر العمل", "Approval and work order"))
     opt_names = list(res["ar"] if AR else res["en"])
@@ -494,7 +529,7 @@ def page_advisor():
 
 
 def page_emergency():
-    st.title(L("🚨 مركز الطوارئ: توأم العواقب", "🚨 Emergency centre: consequence twin"))
+    st.title(L("مركز الطوارئ: توأم العواقب", "Emergency centre: consequence twin"))
     r = df.iloc[-1]
     night = r["time"].hour < 6 or r["time"].hour >= 19
     # back-calculate the source term from the detector reading (inverse plume)
@@ -520,8 +555,8 @@ def page_emergency():
     up = (src[0] - 90 * np.sin(th), src[1] - 90 * np.cos(th))
     cesium_map(500, overlay=geo.lel_overlay(xs, ys, Z) if q > 0 else None,
                arrows=[{"x0": src[0] - 15 * np.sin(th), "y0": src[1] - 15 * np.cos(th), "x1": up[0], "y1": up[1],
-                        "color": "#2ca02c", "label": L("الإخلاء عكس الريح", "Evacuate upwind")}],
-               markers=[{"x": det[0], "y": det[1], "label": "GD-01", "color": "#1f77b4"}])
+                        "color": "#1f8a3a", "label": L("الإخلاء عكس الريح", "Evacuate upwind")}],
+               markers=[{"x": det[0], "y": det[1], "label": "GD-01", "color": "#1f3a68"}])
     st.caption(L("الألوان: تركيز الأبخرة % LEL (أصفر 5% حتى أحمر داكن فوق 100%).", "Colours: vapour concentration % LEL (yellow 5% to dark red above 100%)."))
     zone = (Z >= 100).sum() * (xs[1] - xs[0]) * (ys[1] - ys[0])
     st.caption(L(f"مساحة المنطقة القابلة للاشتعال (≥100% LEL): {zone:,.0f} م². نموذج غاوسي مبسط (Briggs) للتوضيح؛ في المشروع الحقيقي PHAST أو CFD.",
@@ -537,7 +572,7 @@ def page_emergency():
 
 
 def page_fmea():
-    st.title(L("📋 FMEA والموثوقية", "📋 FMEA & reliability"))
+    st.title(L("FMEA والموثوقية", "FMEA & reliability"))
     st.markdown(L("جدول FMEA بترميز ISO 14224 لأنماط الفشل. عدّل S وO وD ليُعاد حساب RPN. «D بعد» هو تقييم الاكتشاف بعد تشغيل كاشف رقيب المذكور في الصف.",
                   "FMEA with ISO 14224 failure-mode codes. Edit S, O and D to recompute RPN. 'D after' is the detection rating once the RAQIB detector on the row is live."))
     cols = ["id", "asset_ar" if AR else "asset", "fm_code", "failure_mode_ar" if AR else "failure_mode",
@@ -552,13 +587,13 @@ def page_fmea():
     fig.add_trace(go.Bar(x=f2["id"], y=f2["RPN_before"], name=L("RPN قبل رقيب", "RPN before RAQIB")))
     fig.add_trace(go.Bar(x=f2["id"], y=f2["RPN_after"], name=L("RPN بعد رقيب", "RPN with RAQIB")))
     fig.update_layout(barmode="group", height=320, margin=dict(l=10, r=10, t=10, b=10))
-    st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(fig, width="stretch", theme=None)
     st.metric(L("خفض إجمالي RPN", "Total RPN reduction"), f"{100 * (1 - f2['RPN_after'].sum() / f2['RPN_before'].sum()):.0f}%")
     st.download_button(L("تحميل FMEA CSV", "Download FMEA CSV"), f2.to_csv(index=False).encode("utf-8-sig"), "raqib_fmea.csv")
 
 
 def page_mlops():
-    st.title(L("🧠 النماذج وضبط الجودة (MLOps)", "🧠 Models & MLOps"))
+    st.title(L("النماذج وضبط الجودة (MLOps)", "Models & MLOps"))
     info = eng.train_info
     c1, c2, c3, c4 = st.columns(4)
     c1.metric(L("نسخة النموذج", "Model version"), info["version"])
@@ -593,13 +628,13 @@ def page_mlops():
     st.subheader(L("درجة الشذوذ (Isolation Forest)", "Anomaly score (Isolation Forest)"))
     fig = go.Figure(go.Scatter(x=df["time"], y=P["anomaly"], fill="tozeroy"))
     fig.update_yaxes(range=[0, 1.02], tickformat=".0%")
-    st.plotly_chart(time_axis(fig, 220), width="stretch")
+    st.plotly_chart(time_axis(fig, 220), width="stretch", theme=None)
     st.markdown(L("**سياسة التشغيل:** 3 أشهر في وضع الظل قبل إرسال أي إنذار، إعادة تدريب شهرية مع توثيق كل نسخة، وتقييم المشغل لكل إنذار يدخل في التدريب التالي.",
                   "**Operating policy:** 3 months in shadow mode before any alert reaches operators, monthly retraining with every version recorded, and every operator verdict feeds the next training round."))
 
 
 def page_security():
-    st.title(L("🔐 تكامل OT والأمن السيبراني", "🔐 OT integration & cybersecurity"))
+    st.title(L("تكامل OT والأمن السيبراني", "OT integration & cybersecurity"))
     st.markdown(L("رقيب **يقرأ فقط** من أنظمة التحكم عبر بوابة أحادية الاتجاه، والكتابة الوحيدة خارج النظام هي مسودة أمر عمل في CMMS. خط أحمر: لا يلمس نظام السلامة SIS.",
                   "RAQIB **only reads** from control systems through a one-way gateway; its only write is a work-order draft in CMMS. Red line: it never touches the SIS."))
     st.graphviz_chart(security.PURDUE_DOT, width="stretch")
@@ -627,7 +662,7 @@ def page_security():
 
 
 def page_assistant():
-    st.title(L("💬 المساعد المحادث", "💬 Assistant"))
+    st.title(L("المساعد المحادث", "Assistant"))
     st.caption(L("يجيب من البيانات الحية ومن الإجراءات مع ذكر المصدر. لا يستخدم نموذجاً لغوياً سحابياً؛ يمكن إضافة نموذج مفتوح محلياً.",
                  "Answers from live data and procedures, citing the source. No cloud LLM; an on-prem open-weights model can be added."))
     ex = [L("لماذا ارتفع اهتزاز المضخة P-201A؟", "Why is P-201A vibration rising?"),
@@ -655,7 +690,7 @@ def page_assistant():
 
 
 def page_voice():
-    st.title(L("🗣️ صوت المشغل وقبول النظام", "🗣️ Operator voice & acceptance"))
+    st.title(L("صوت المشغل وقبول النظام", "Operator voice & acceptance"))
     st.markdown(L("أكبر مخاطر المشروع ثقة المشغلين. هنا يقيّم المشغل كل تنبيه، ونقيس عبء الإنذارات مقابل ISA-18.2.",
                   "The biggest project risk is operator trust. Here operators rate every alert, and alarm load is measured against ISA-18.2."))
     conv = pd.DataFrame({
@@ -669,7 +704,7 @@ def page_voice():
     fig.add_trace(go.Scatter(x=df["time"], y=conv_rate, name=L("إنذارات تقليدية/ساعة", "Conventional alarms / h")))
     fig.add_trace(go.Scatter(x=df["time"], y=raq, name=L("تنبيهات رقيب/ساعة", "RAQIB alerts / h")))
     fig.add_hline(y=6, line_dash="dot", annotation_text="ISA-18.2 ≤ 6/h")
-    st.plotly_chart(time_axis(fig, 280), width="stretch")
+    st.plotly_chart(time_axis(fig, 280), width="stretch", theme=None)
     st.subheader(L("تقييمات التنبيهات", "Alert verdicts"))
     fb = pd.DataFrame(st.session_state.feedback)
     if len(fb):
@@ -687,7 +722,7 @@ def page_voice():
 
 
 def page_about():
-    st.title(L("👥 الفريق والمعمارية", "👥 Team & architecture"))
+    st.title(L("الفريق والمعمارية", "Team & architecture"))
     st.markdown(L("نموذج أولي مفتوح المصدر لمنصة **رقيب**: توأم رقمي يتنبأ بالحوادث قبل وقوعها ويقترح حلاً مختبراً على المحاكاة. بُني بأدوار فريق المرحلة الأولى:",
                   "Open-source prototype of **RAQIB**: a digital twin that predicts incidents before they happen and proposes a fix tested on the simulation. Built across the phase-1 team roles:"))
     roles = pd.DataFrame([
@@ -706,6 +741,7 @@ def page_about():
     st.markdown("Python · Streamlit · scikit-learn · Plotly · NumPy · pandas — MIT License")
 
 
+hmi_banner()
 {"control": page_control, "twin": page_twin, "asset": page_asset, "advisor": page_advisor,
  "emergency": page_emergency, "fmea": page_fmea, "mlops": page_mlops, "security": page_security,
  "assistant": page_assistant, "voice": page_voice, "about": page_about}[page]()

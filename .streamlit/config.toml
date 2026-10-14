@@ -1,6 +1,6 @@
 [theme]
 base = "light"
-primaryColor = "#0b6e4f"
+primaryColor = "#2f4f6f"
 font = "sans serif"
 
 [server]
