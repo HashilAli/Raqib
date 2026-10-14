@@ -1,0 +1,10 @@
+wo,date,equipment,fm_code,description,downtime_h,cost_omr,run_hours_at_failure
+WO-2023-0412,2023-03-18,P-201A,VIB,DE bearing replaced after high vibration alarm,14,2850,11800
+WO-2023-0977,2023-08-02,P-201B,ELP,Mechanical seal leak - seal replaced,10,3400,9600
+WO-2024-0158,2024-01-27,P-201A,ELP,Seal weep found during round,6,2100,7400
+WO-2024-0631,2024-06-21,P-201A,VIB,Bearing failure - unplanned trip in summer peak,26,6900,12900
+WO-2024-1102,2024-11-09,P-201B,VIB,Coupling misalignment corrected,5,900,8100
+WO-2025-0244,2025-02-14,P-201A,OHE,Bearing overtemperature - lube oil changed,4,450,6200
+WO-2025-0870,2025-07-30,P-201A,VIB,DE bearing replaced (planned after trend),8,2300,13800
+WO-2025-1290,2025-12-03,P-201B,FTS,Standby failed to start - starter relay,3,600,
+WO-2026-0331,2026-04-11,P-201A,VIB,NDE bearing noise - replaced,9,2400,10400
