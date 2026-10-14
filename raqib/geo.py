@@ -19,7 +19,8 @@ from urllib.parse import quote
 import numpy as np
 
 CESIUM_VERSION = "1.121.0"
-ORIGIN_LAT, ORIGIN_LON = 23.4998, 58.2024      # pilot site from the project document
+ORIGIN_LAT, ORIGIN_LON = 23.4998, 58.2054      # ~300 m east of the pilot coordinates in the project document,
+                                                 # on open ground so the simulated layout does not sit on real tanks
 ORIGIN_XY = (180.0, 160.0)                       # site-sketch point that sits on the origin
 M_PER_DEG_LAT = 111_320.0
 M_PER_DEG_LON = M_PER_DEG_LAT * np.cos(np.radians(ORIGIN_LAT))
